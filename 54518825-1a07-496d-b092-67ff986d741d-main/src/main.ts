@@ -134,7 +134,7 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color('#808080');
 scene.add(new THREE.HemisphereLight('#e2e2e2', '#666666', 1));
 
-const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
+const camera = new THREE.PerspectiveCamera(45, 1, 0.5, 45000);
 camera.position.set(13, 12, 16);
 
 const renderer = new WebGPURenderer({ antialias: true, alpha: false });
@@ -160,6 +160,7 @@ viewport.appendChild(renderer.domElement);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
+controls.minDistance = 0.5;
 controls.target.set(0, 0, 0);
 controls.mouseButtons = {
   LEFT: THREE.MOUSE.PAN,
@@ -1683,7 +1684,7 @@ function addHierarchyRow(mesh: THREE.Mesh) {
   pointChild.type = 'button';
   pointChild.className = 'point-geometry-child';
   pointChild.textContent = pointGeometryNames.get(mesh) ?? 'pointGeometryTriangleFillin';
-  pointChild.hidden = isLight;
+  pointChild.hidden = isLight || !pointGeometryPoints.has(mesh);
   pointDisclosure.addEventListener('click', () => {
     pointChild.hidden = !pointChild.hidden;
     pointDisclosure.textContent = pointChild.hidden ? '›' : '⌄';
@@ -2096,7 +2097,7 @@ function getSunPosition(settings: SunSettings): THREE.Vector3 {
     Math.cos(hourAngle) * Math.cos(latitude),
     -Math.cos(hourAngle) * Math.sin(latitude),
   ).normalize();
-  return direction.multiplyScalar(80);
+  return direction.multiplyScalar(40000);
 }
 
 function updateSunPosition(proxy: THREE.Mesh, light: THREE.DirectionalLight, settings: SunSettings) {
@@ -2132,11 +2133,11 @@ function addLight(type: 'spot' | 'directional' | 'point'): THREE.Mesh {
   if (light instanceof THREE.DirectionalLight) {
     proxy.frustumCulled = false;
     proxy.geometry.dispose();
-    proxy.geometry = new THREE.SphereGeometry(0.55, 20, 14);
+    proxy.geometry = new THREE.SphereGeometry(275, 20, 14);
     material.dispose();
     proxy.material = new THREE.MeshBasicMaterial({ color: '#ffe188', depthTest: false });
     const flare = new THREE.Mesh(
-      new THREE.TorusGeometry(0.8, 0.035, 8, 48),
+      new THREE.TorusGeometry(400, 17.5, 8, 48),
       new THREE.MeshBasicMaterial({ color: '#ffd37a', transparent: true, opacity: 0.75, depthTest: false }),
     );
     flare.visible = false;
