@@ -14,8 +14,8 @@ const sidebarResizeElement = document.querySelector<HTMLDivElement>('.sidebar-re
 const panelResizeElement = document.querySelector<HTMLDivElement>('.panel-resize');
 const hierarchyPanelElement = document.querySelector<HTMLElement>('.hierarchy-panel');
 const propertiesPanelElement = document.querySelector<HTMLElement>('.properties-panel');
-const addButtonElement = document.querySelector<HTMLButtonElement>('.add-button');
-const shapeMenuElement = document.querySelector<HTMLDivElement>('#shape-menu');
+const insertButtonElement = document.querySelector<HTMLButtonElement>('.insert-button');
+const insertMenuElement = document.querySelector<HTMLDivElement>('#insert-menu');
 const lightingButtonElement = document.querySelector<HTMLButtonElement>('.lighting-button');
 const lightingMenuElement = document.querySelector<HTMLDivElement>('#lighting-menu');
 const sceneContentsElement = document.querySelector<HTMLDivElement>('#scene-contents');
@@ -40,7 +40,7 @@ const objectContextMenuElement = document.querySelector<HTMLDivElement>('#object
 
 if (!viewportElement || !gpuErrorElement || !toolbarElement || !sidebarElement || !sidebarResizeElement ||
   !panelResizeElement || !hierarchyPanelElement || !propertiesPanelElement ||
-  !addButtonElement || !shapeMenuElement || !lightingButtonElement || !lightingMenuElement ||
+  !insertButtonElement || !insertMenuElement || !lightingButtonElement || !lightingMenuElement ||
   !sceneContentsElement || !sceneDisclosureElement || !propertiesElement ||
   !distanceInputElement || !distanceOutputElement || !customCursorElement || !snapButtonElement ||
   !editButtonElement || !editMenuElement || !eyedropperButtonElement || !pointGeoButtonElement ||
@@ -58,8 +58,8 @@ const sidebarResize = sidebarResizeElement;
 const panelResize = panelResizeElement;
 const hierarchyPanel = hierarchyPanelElement;
 const propertiesPanel = propertiesPanelElement;
-const addButton = addButtonElement;
-const shapeMenu = shapeMenuElement;
+const insertButton = insertButtonElement;
+const insertMenu = insertMenuElement;
 const lightingButton = lightingButtonElement;
 const lightingMenu = lightingMenuElement;
 const sceneContents = sceneContentsElement;
@@ -419,16 +419,6 @@ transformControls.addEventListener('objectChange', () => {
   }
 });
 
-scene.add(new THREE.HemisphereLight('#cbd7e6', '#32363c', 2.2));
-
-const keyLight = new THREE.DirectionalLight('#fff1dc', 3.5);
-keyLight.position.set(8, 14, 10);
-scene.add(keyLight);
-
-const fillLight = new THREE.DirectionalLight('#91b6d8', 1.2);
-fillLight.position.set(-10, 7, -8);
-scene.add(fillLight);
-
 const gridDistance = Number(distanceInput.value);
 const cameraPositionUniform = TSL.uniform(camera.position.clone());
 const renderDistanceUniform = TSL.uniform(gridDistance);
@@ -781,6 +771,7 @@ function updateLightProperties(mesh: THREE.Mesh, light: EditableLight) {
     max: number,
     step: number,
     apply: (nextValue: number) => void,
+    withSlider = false,
   ) => {
     const label = document.createElement('label');
     label.className = 'property-field';
@@ -792,17 +783,33 @@ function updateLightProperties(mesh: THREE.Mesh, light: EditableLight) {
     input.step = String(step);
     input.value = String(value);
     input.setAttribute('aria-label', labelText);
-    input.addEventListener('change', () => {
+    let slider: HTMLInputElement | null = null;
+    input.addEventListener('input', () => {
+      if (input.value.trim() === '') return;
       const requested = Number(input.value);
-      if (!Number.isFinite(requested)) {
-        input.value = String(value);
-        return;
-      }
+      if (!Number.isFinite(requested)) return;
       const nextValue = THREE.MathUtils.clamp(requested, min, max);
       apply(nextValue);
       input.value = String(nextValue);
+      if (slider) slider.value = String(nextValue);
     });
     label.appendChild(input);
+    if (withSlider) {
+      slider = document.createElement('input');
+      slider.type = 'range';
+      slider.min = String(min);
+      slider.max = String(max);
+      slider.step = String(step);
+      slider.value = String(value);
+      slider.className = 'light-intensity-slider';
+      slider.setAttribute('aria-label', `${labelText} slider`);
+      slider.addEventListener('input', () => {
+        const nextValue = Number(slider!.value);
+        input.value = String(nextValue);
+        apply(nextValue);
+      });
+      label.appendChild(slider);
+    }
     return label;
   };
 
@@ -932,7 +939,15 @@ function updateLightProperties(mesh: THREE.Mesh, light: EditableLight) {
   form.append(
     nameLabel,
     makeToggleField('Enabled', light.visible, (enabled) => { light.visible = enabled; }),
-    makeNumberField('Intensity', light.intensity, 0, 100000, 0.1, (value) => { light.intensity = value; }),
+    makeNumberField(
+      light instanceof THREE.DirectionalLight ? 'Brightness (lux)' : 'Brightness (cd)',
+      light.intensity,
+      0,
+      light instanceof THREE.DirectionalLight ? 100000 : 10000,
+      1,
+      (value) => { light.intensity = value; },
+      true,
+    ),
     colorSection,
   );
   if (light instanceof THREE.PointLight || light instanceof THREE.SpotLight) {
@@ -1626,7 +1641,9 @@ function setPointGeometryEnabled(enabled: boolean) {
       pointGeoEnabled = true;
       pointGeoButton.setAttribute('aria-pressed', 'true');
       sceneContents.querySelectorAll<HTMLButtonElement>('.point-geometry-disclosure').forEach((button) => {
-        button.hidden = false;
+        const row = button.closest<HTMLElement>('.scene-object-row');
+        const mesh = objects.find((object) => object.uuid === row?.dataset.uuid);
+        button.hidden = Boolean(mesh && sceneLights.has(mesh));
       });
       return;
     }
@@ -1641,9 +1658,9 @@ function updatePointEditToolbar() {
   const editing = pointEditObject !== null;
   addGeometryPointButton.hidden = !editing;
   addGeometryPointButton.classList.toggle('active', addingGeometryPoint);
-  addButton.classList.toggle('point-edit-locked', editing);
-  addButton.setAttribute('aria-disabled', String(editing));
-  shapeMenu.querySelectorAll<HTMLButtonElement>('[data-shape]').forEach((button) => {
+  insertButton.classList.toggle('point-edit-locked', editing);
+  insertButton.setAttribute('aria-disabled', String(editing));
+  insertMenu.querySelectorAll<HTMLButtonElement>('button').forEach((button) => {
     button.classList.toggle('point-edit-locked', editing);
     button.setAttribute('aria-disabled', String(editing));
   });
@@ -1996,10 +2013,10 @@ function addLight(type: 'spot' | 'directional' | 'point'): THREE.Mesh {
   proxy.position.set(0, 2, 0);
   proxy.renderOrder = 998;
   const light: EditableLight = type === 'spot'
-    ? new THREE.SpotLight('#ffffff', 5, 10, Math.PI / 6, 0.2)
+    ? new THREE.SpotLight('#ffffff', 1000, 20, Math.PI / 6, 0.2)
     : type === 'directional'
-      ? new THREE.DirectionalLight('#ffffff', 5)
-      : new THREE.PointLight('#ffffff', 5, 10);
+      ? new THREE.DirectionalLight('#ffffff', 10000)
+      : new THREE.PointLight('#ffffff', 1000, 20);
   light.name = proxy.name;
   light.castShadow = false;
   light.shadow.mapSize.set(512, 512);
@@ -2159,11 +2176,11 @@ function setPlacementMode(shape: string | null) {
   if (lastCursorEvent) updateCursorAppearance(lastCursorEvent);
 }
 
-addButton.addEventListener('click', () => {
+insertButton.addEventListener('click', () => {
   if (pointEditObject) return;
-  const isOpen = addButton.getAttribute('aria-expanded') === 'true';
-  addButton.setAttribute('aria-expanded', String(!isOpen));
-  shapeMenu.hidden = isOpen;
+  const isOpen = insertButton.getAttribute('aria-expanded') === 'true';
+  insertButton.setAttribute('aria-expanded', String(!isOpen));
+  insertMenu.hidden = isOpen;
   lightingMenu.hidden = true;
   lightingButton.setAttribute('aria-expanded', 'false');
 });
@@ -2173,8 +2190,6 @@ lightingButton.addEventListener('click', () => {
   const isOpen = lightingButton.getAttribute('aria-expanded') === 'true';
   lightingButton.setAttribute('aria-expanded', String(!isOpen));
   lightingMenu.hidden = isOpen;
-  shapeMenu.hidden = true;
-  addButton.setAttribute('aria-expanded', 'false');
 });
 
 lightingMenu.querySelectorAll<HTMLButtonElement>('[data-light]').forEach((button) => {
@@ -2184,25 +2199,32 @@ lightingMenu.querySelectorAll<HTMLButtonElement>('[data-light]').forEach((button
     if (pointEditObject && !finishPointEditing(true)) return;
     lightingMenu.hidden = true;
     lightingButton.setAttribute('aria-expanded', 'false');
+    insertMenu.hidden = true;
+    insertButton.setAttribute('aria-expanded', 'false');
     addLight(type);
   });
 });
 
 document.addEventListener('pointerdown', (event) => {
   const target = event.target as Node;
-  if (!lightingMenu.contains(target) && !lightingButton.contains(target)) {
+  if (!insertMenu.contains(target) && !insertButton.contains(target)) {
+    insertMenu.hidden = true;
+    insertButton.setAttribute('aria-expanded', 'false');
+    lightingMenu.hidden = true;
+    lightingButton.setAttribute('aria-expanded', 'false');
+  } else if (!lightingMenu.contains(target) && !lightingButton.contains(target)) {
     lightingMenu.hidden = true;
     lightingButton.setAttribute('aria-expanded', 'false');
   }
 });
 
-shapeMenu.querySelectorAll<HTMLButtonElement>('[data-shape]').forEach((button) => {
+insertMenu.querySelectorAll<HTMLButtonElement>('[data-shape]').forEach((button) => {
   button.addEventListener('click', () => {
     if (pointEditObject) return;
     const shape = button.dataset.shape;
     if (!shape || !shapeDefinitions[shape]) return;
-    shapeMenu.hidden = true;
-    addButton.setAttribute('aria-expanded', 'false');
+    insertMenu.hidden = true;
+    insertButton.setAttribute('aria-expanded', 'false');
     lightingMenu.hidden = true;
     lightingButton.setAttribute('aria-expanded', 'false');
     setPlacementMode(shape);

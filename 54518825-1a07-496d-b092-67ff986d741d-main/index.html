@@ -10,30 +10,30 @@
     <main class="workspace">
       <section class="editor" aria-label="3D scene editor">
         <div class="toolbar" role="group" aria-label="Transform tools">
-          <div class="add-menu-wrap">
-            <button class="add-button" type="button" aria-expanded="false" aria-controls="shape-menu">+</button>
-            <div id="shape-menu" class="shape-menu" hidden>
-              <div class="menu-heading">ADD SHAPE</div>
+          <div class="insert-menu-wrap">
+            <button class="insert-button" type="button" aria-expanded="false" aria-controls="insert-menu">Insert</button>
+            <div id="insert-menu" class="insert-menu" hidden>
+              <div class="menu-heading">ADD TO SCENE</div>
               <button type="button" data-shape="Cube">Cube</button>
               <button type="button" data-shape="Sphere">Sphere</button>
               <button type="button" data-shape="Cylinder">Cylinder</button>
               <button type="button" data-shape="Cone">Cone</button>
               <button type="button" data-shape="Torus">Torus</button>
               <button type="button" data-shape="Pill">Pill</button>
+              <div class="lighting-menu-wrap">
+                <button class="lighting-button" type="button" aria-expanded="false" aria-controls="lighting-menu">FXlighting <span aria-hidden="true">›</span></button>
+                <div id="lighting-menu" class="lighting-menu" hidden>
+                  <div class="menu-heading">ADD LIGHT</div>
+                  <button type="button" data-light="spot">Spot Light</button>
+                  <button type="button" data-light="directional">Universal Light (Sun)</button>
+                  <button type="button" data-light="point">Point Light</button>
+                </div>
+              </div>
               <label class="distance-control" for="render-distance">
                 <span>Grid render distance</span>
                 <span><output id="render-distance-value">80</output> m</span>
                 <input id="render-distance" type="range" min="20" max="200" step="10" value="80" />
               </label>
-            </div>
-          </div>
-          <div class="lighting-menu-wrap">
-            <button class="lighting-button" type="button" aria-expanded="false" aria-controls="lighting-menu">FXlighting <span aria-hidden="true">›</span></button>
-            <div id="lighting-menu" class="lighting-menu" hidden>
-              <div class="menu-heading">ADD LIGHT</div>
-              <button type="button" data-light="spot">Spot Light</button>
-              <button type="button" data-light="directional">Universal Light (Sun)</button>
-              <button type="button" data-light="point">Point Light</button>
             </div>
           </div>
           <button class="tool-button active" type="button" data-mode="select" aria-pressed="true">Select</button>
