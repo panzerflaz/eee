@@ -3,7 +3,6 @@ import { MeshBasicNodeMaterial, WebGPURenderer } from 'three/webgpu';
 import * as TSL from 'three/tsl';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
-import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
 import './style.css';
 
 const viewportElement = document.querySelector<HTMLDivElement>('#viewport');
@@ -298,10 +297,17 @@ const recentColors: string[] = [];
 const lockedObjects = new WeakSet<THREE.Mesh>();
 const pointGeometryNames = new WeakMap<THREE.Mesh, string>();
 const pointGeometryPoints = new WeakMap<THREE.Mesh, THREE.Vector3[]>();
+const pointGeometryBasePoints = new WeakMap<THREE.Mesh, THREE.Vector3[]>();
+interface PointGeometryEditState {
+  basePoints: THREE.Vector3[];
+  basePositions: Float32Array;
+  influenceRadius: number;
+  hadSavedPoints: boolean;
+}
+const pointGeometryEditStates = new WeakMap<THREE.Mesh, PointGeometryEditState>();
 const topologyUpdateTimers = new WeakMap<THREE.Mesh, number>();
 let geometryPointMarkers: THREE.Mesh[] = [];
 let pointPreviewFrame: number | null = null;
-let pointEditTriangleCount = 0;
 const pointMarkerWorldPosition = new THREE.Vector3();
 const originalEmissive = new WeakMap<THREE.Mesh, { color: THREE.Color; intensity: number }>();
 let contextTargetObject: THREE.Mesh | null = null;
@@ -1029,7 +1035,10 @@ function updateLightProperties(mesh: THREE.Mesh, light: EditableLight) {
 
   form.append(
     nameLabel,
-    makeToggleField('Enabled', light.visible, (enabled) => { light.visible = enabled; }),
+    makeToggleField('Enabled', light.visible, (enabled) => {
+      light.visible = enabled;
+      updateLightHierarchyIcon(mesh, enabled);
+    }),
     makeNumberField(
       light instanceof THREE.DirectionalLight ? 'Brightness (lux)' : 'Brightness (cd)',
       light.intensity,
@@ -1147,11 +1156,26 @@ function updateProperties(mesh: THREE.Mesh) {
       if (!topologyStatus.isConnected) modelDetails.appendChild(topologyStatus);
       const timer = window.setTimeout(() => {
         const pointData = pointGeometryPoints.get(mesh);
-        let sourceGeometry: THREE.BufferGeometry | undefined;
-        if (pointData) sourceGeometry = new ConvexGeometry(pointData);
         const previousGeometry = mesh.geometry;
-        mesh.geometry = createTriangleGeometry(shape, nextFaceCount, sourceGeometry);
-        sourceGeometry?.dispose();
+        mesh.geometry = createTriangleGeometry(shape, nextFaceCount);
+        if (pointData) {
+          const basePoints = pointGeometryBasePoints.get(mesh);
+          if (!basePoints) throw new Error(`Base point geometry for "${mesh.name}" is missing.`);
+          const position = mesh.geometry.getAttribute('position');
+          if (!(position instanceof THREE.BufferAttribute)) {
+            throw new Error(`Geometry positions for "${mesh.name}" cannot be edited.`);
+          }
+          mesh.geometry.computeBoundingBox();
+          const bounds = mesh.geometry.boundingBox;
+          if (!bounds) throw new Error(`Geometry bounds for "${mesh.name}" could not be calculated.`);
+          applyPointDeformationToGeometry(
+            mesh.geometry,
+            Float32Array.from(position.array),
+            basePoints,
+            pointData,
+            Math.max(bounds.getSize(new THREE.Vector3()).length() * 0.4, 0.1),
+          );
+        }
         previousGeometry.dispose();
         const updatedFaceCount = mesh.geometry.getAttribute('position').count / 3;
         topology.edges = Math.round(updatedFaceCount * 1.5);
@@ -1595,7 +1619,14 @@ function selectObject(mesh: THREE.Mesh | null) {
 function updatePointGeometryHierarchy(mesh: THREE.Mesh) {
   const row = sceneContents.querySelector<HTMLElement>(`.scene-object-row[data-uuid="${mesh.uuid}"]`);
   const child = row?.querySelector<HTMLButtonElement>('.point-geometry-child');
-  if (child) child.textContent = pointGeometryNames.get(mesh) ?? 'pointGeometryTriangleFillin';
+  const childName = child?.querySelector<HTMLElement>('.point-geometry-name');
+  if (childName) childName.textContent = pointGeometryNames.get(mesh) ?? 'pointGeometryTriangleFillin';
+  if (child) child.hidden = !pointGeometryPoints.has(mesh);
+}
+
+function updateLightHierarchyIcon(mesh: THREE.Mesh, enabled: boolean) {
+  const icon = sceneContents.querySelector<HTMLImageElement>(`.scene-object-row[data-uuid="${mesh.uuid}"] .light-hierarchy-icon`);
+  if (icon) icon.src = enabled ? './light-enabled.png' : './light-disabled.png';
 }
 
 function updateObjectLockControls(mesh: THREE.Mesh) {
@@ -1683,9 +1714,23 @@ function addHierarchyRow(mesh: THREE.Mesh) {
   const pointChild = document.createElement('button');
   pointChild.type = 'button';
   pointChild.className = 'point-geometry-child';
-  pointChild.textContent = pointGeometryNames.get(mesh) ?? 'pointGeometryTriangleFillin';
+  const pointIcon = document.createElement('img');
+  pointIcon.className = 'point-geometry-icon';
+  pointIcon.src = './point-geometry.png';
+  pointIcon.alt = '';
+  pointIcon.setAttribute('aria-hidden', 'true');
+  const pointName = document.createElement('span');
+  pointName.className = 'point-geometry-name';
+  pointName.textContent = pointGeometryNames.get(mesh) ?? 'pointGeometryTriangleFillin';
+  pointChild.append(pointIcon, pointName);
   pointChild.hidden = isLight || !pointGeometryPoints.has(mesh);
   pointDisclosure.addEventListener('click', () => {
+    if (!pointGeometryPoints.has(mesh)) {
+      beginPointEditing(mesh);
+      pointDisclosure.textContent = '⌄';
+      pointDisclosure.setAttribute('aria-expanded', 'true');
+      return;
+    }
     pointChild.hidden = !pointChild.hidden;
     pointDisclosure.textContent = pointChild.hidden ? '›' : '⌄';
     pointDisclosure.setAttribute('aria-expanded', String(!pointChild.hidden));
@@ -1703,7 +1748,9 @@ function addHierarchyRow(mesh: THREE.Mesh) {
   if (isLight) {
     const icon = document.createElement('img');
     icon.className = 'light-hierarchy-icon';
-    icon.src = './light-icon.png';
+    const light = sceneLights.get(mesh);
+    if (!light) throw new Error(`Light data for "${mesh.name}" is missing.`);
+    icon.src = light.visible ? './light-enabled.png' : './light-disabled.png';
     icon.alt = '';
     icon.setAttribute('aria-hidden', 'true');
     line.appendChild(icon);
@@ -1840,15 +1887,7 @@ function updatePointGeometryPreview() {
     const mesh = pointEditObject;
     const points = mesh ? pointGeometryPoints.get(mesh) : undefined;
     if (!mesh || !points || points.length < 4) return;
-    const geometry = new ConvexGeometry(points);
-    const positions = geometry.getAttribute('position');
-    if (positions.count < 12) {
-      geometry.dispose();
-      return;
-    }
-    const previousGeometry = mesh.geometry;
-    mesh.geometry = geometry;
-    previousGeometry.dispose();
+    applyPointGeometryDeformation(mesh);
     selectionHighlight.update();
   });
 }
@@ -1883,6 +1922,10 @@ function finishGeometryPointDrag() {
 function getEditablePoints(mesh: THREE.Mesh): THREE.Vector3[] {
   const existing = pointGeometryPoints.get(mesh);
   if (existing) return existing.map((point) => point.clone());
+  return getBaseEditablePoints(mesh);
+}
+
+function getBaseEditablePoints(mesh: THREE.Mesh): THREE.Vector3[] {
   const base = shapeDefinitions[objectShapes.get(mesh)!].createBaseGeometry();
   const positions = base.getAttribute('position');
   const points: THREE.Vector3[] = [];
@@ -1945,9 +1988,26 @@ function beginPointEditing(mesh: THREE.Mesh) {
   manualPointSelectionEnabled = false;
   pointEditObject = mesh;
   selectedPointObject = mesh;
-  pointEditTriangleCount = Math.max(1, Math.floor(mesh.geometry.getAttribute('position').count / 3));
+  const hadSavedPoints = pointGeometryPoints.has(mesh);
   const points = getEditablePoints(mesh);
   pointGeometryPoints.set(mesh, points);
+  if (!pointGeometryBasePoints.has(mesh)) {
+    pointGeometryBasePoints.set(mesh, getBaseEditablePoints(mesh));
+  }
+  const positions = mesh.geometry.getAttribute('position');
+  if (!(positions instanceof THREE.BufferAttribute)) {
+    throw new Error(`Geometry positions for "${mesh.name}" cannot be edited.`);
+  }
+  mesh.geometry.computeBoundingBox();
+  const bounds = mesh.geometry.boundingBox;
+  if (!bounds) throw new Error(`Geometry bounds for "${mesh.name}" could not be calculated.`);
+  pointGeometryEditStates.set(mesh, {
+    basePoints: points.map((point) => point.clone()),
+    basePositions: Float32Array.from(positions.array),
+    influenceRadius: Math.max(bounds.getSize(new THREE.Vector3()).length() * 0.4, 0.1),
+    hadSavedPoints,
+  });
+  updatePointGeometryHierarchy(mesh);
   clearGeometryPointMarkers();
   points.forEach((point) => addGeometryPointMarker(mesh, point));
   addingGeometryPoint = false;
@@ -1957,34 +2017,66 @@ function beginPointEditing(mesh: THREE.Mesh) {
   updatePointGeometryProperties(mesh);
 }
 
+function applyPointGeometryDeformation(mesh: THREE.Mesh) {
+  const points = pointGeometryPoints.get(mesh);
+  const state = pointGeometryEditStates.get(mesh);
+  if (!points || !state) return;
+  applyPointDeformationToGeometry(mesh.geometry, state.basePositions, state.basePoints, points, state.influenceRadius);
+}
+
+function applyPointDeformationToGeometry(
+  geometry: THREE.BufferGeometry,
+  basePositions: Float32Array,
+  basePoints: THREE.Vector3[],
+  points: THREE.Vector3[],
+  influenceRadius: number,
+) {
+  const position = geometry.getAttribute('position');
+  if (!(position instanceof THREE.BufferAttribute)) throw new Error('Geometry positions cannot be edited.');
+  const influences = points.flatMap((point, index) => {
+    const basePoint = basePoints[index];
+    if (!basePoint) return [];
+    const delta = point.clone().sub(basePoint);
+    return delta.lengthSq() > 1e-12 ? [{ basePoint, delta }] : [];
+  });
+  const source = basePositions;
+  const vertex = new THREE.Vector3();
+  const offset = new THREE.Vector3();
+  for (let index = 0; index < position.count; index++) {
+    const arrayOffset = index * 3;
+    vertex.set(source[arrayOffset], source[arrayOffset + 1], source[arrayOffset + 2]);
+    offset.set(0, 0, 0);
+    let weightTotal = 0;
+    for (const influence of influences) {
+      const distance = vertex.distanceTo(influence.basePoint);
+      if (distance >= influenceRadius) continue;
+      const t = distance / influenceRadius;
+      const weight = (1 - t) * (1 - t) * (1 + 2 * t);
+      offset.addScaledVector(influence.delta, weight);
+      weightTotal += weight;
+    }
+    if (weightTotal > 0) {
+      offset.multiplyScalar(Math.min(1, weightTotal) / weightTotal);
+      vertex.add(offset);
+    }
+    position.setXYZ(index, vertex.x, vertex.y, vertex.z);
+  }
+  position.needsUpdate = true;
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+}
+
 function rebuildPointGeometry(mesh: THREE.Mesh) {
   const points = pointGeometryPoints.get(mesh);
   if (!points || points.length < 4) {
-    if (pointStatusElement) pointStatusElement.textContent = 'Add at least four points to create a filled surface.';
+    if (pointStatusElement) pointStatusElement.textContent = 'Add at least four points to create point geometry.';
     return false;
   }
-  const hull = new ConvexGeometry(points);
-  const positions = hull.getAttribute('position');
-  if (positions.count < 12) {
-    hull.dispose();
-    if (pointStatusElement) pointStatusElement.textContent = 'These points do not enclose a 3D shape. Add points in different directions.';
-    return false;
-  }
-  const shape = objectShapes.get(mesh);
-  if (!shape) {
-    hull.dispose();
-    throw new Error(`The shape type for "${mesh.name}" was not found.`);
-  }
-  const faces = Math.max(
-    shapeDefinitions[shape].minimumTriangles,
-    pointEditTriangleCount || Math.floor(mesh.geometry.getAttribute('position').count / 3),
-  );
-  const nextGeometry = createTriangleGeometry(shape, faces, hull);
-  hull.dispose();
-  const previousGeometry = mesh.geometry;
-  mesh.geometry = nextGeometry;
-  previousGeometry.dispose();
+  applyPointGeometryDeformation(mesh);
   pointGeometryPoints.set(mesh, points.map((point) => point.clone()));
+  pointGeometryEditStates.delete(mesh);
+  updatePointGeometryHierarchy(mesh);
   selectionHighlight.update();
   if (pointStatusElement) pointStatusElement.textContent = 'Point geometry saved.';
   return true;
@@ -1997,12 +2089,31 @@ function finishPointEditing(save: boolean) {
     cancelAnimationFrame(pointPreviewFrame);
     pointPreviewFrame = null;
   }
-  if (save && !rebuildPointGeometry(mesh)) return false;
+  if (save) {
+    if (!rebuildPointGeometry(mesh)) return false;
+  } else {
+    const state = pointGeometryEditStates.get(mesh);
+    const position = mesh.geometry.getAttribute('position');
+    if (state && position instanceof THREE.BufferAttribute) {
+      position.array.set(state.basePositions);
+      position.needsUpdate = true;
+      mesh.geometry.computeVertexNormals();
+      mesh.geometry.computeBoundingBox();
+      mesh.geometry.computeBoundingSphere();
+    }
+    pointGeometryEditStates.delete(mesh);
+    if (state?.hadSavedPoints) {
+      pointGeometryPoints.set(mesh, state.basePoints.map((point) => point.clone()));
+    } else {
+      pointGeometryPoints.delete(mesh);
+      pointGeometryBasePoints.delete(mesh);
+    }
+    updatePointGeometryHierarchy(mesh);
+  }
   transformControls.detach();
   manualPointSelectionEnabled = false;
   setGeometryPointSelection([]);
   pointEditObject = null;
-  pointEditTriangleCount = 0;
   selectedGeometryPoints = [];
   pointSelectionStartWorld.clear();
   addingGeometryPoint = false;
@@ -2203,6 +2314,7 @@ function cloneSelectedObject() {
     cloneLight.color.copy(sourceLight.color);
     cloneLight.intensity = sourceLight.intensity;
     cloneLight.visible = sourceLight.visible;
+    updateLightHierarchyIcon(clone, cloneLight.visible);
     cloneLight.castShadow = sourceLight.castShadow;
     if ((cloneLight instanceof THREE.PointLight || cloneLight instanceof THREE.SpotLight) &&
       (sourceLight instanceof THREE.PointLight || sourceLight instanceof THREE.SpotLight)) {
@@ -2246,6 +2358,8 @@ function cloneSelectedObject() {
   objectMaterialPresets.set(clone, objectMaterialPresets.get(source) ?? 'Rubber');
   const savedPoints = pointGeometryPoints.get(source);
   if (savedPoints) pointGeometryPoints.set(clone, savedPoints.map((point) => point.clone()));
+  const savedBasePoints = pointGeometryBasePoints.get(source);
+  if (savedBasePoints) pointGeometryBasePoints.set(clone, savedBasePoints.map((point) => point.clone()));
   const savedPointName = pointGeometryNames.get(source);
   if (savedPointName) pointGeometryNames.set(clone, savedPointName);
   scene.add(clone);
@@ -2536,7 +2650,10 @@ renderer.domElement.addEventListener('pointerdown', (event) => {
   const points = pointGeometryPoints.get(mesh);
   if (!points) throw new Error('Point geometry data is unavailable while adding a point.');
   points.push(localPoint.clone());
+  pointGeometryEditStates.get(mesh)?.basePoints.push(localPoint.clone());
+  pointGeometryBasePoints.get(mesh)?.push(localPoint.clone());
   addGeometryPointMarker(mesh, localPoint);
+  updatePointGeometryHierarchy(mesh);
   addingGeometryPoint = false;
   updatePointEditToolbar();
   updatePointGeometryProperties(mesh);

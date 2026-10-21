@@ -46,7 +46,7 @@ button:focus-visible, input:focus-visible { outline: 1px solid #d0d0d0; outline-
 .view-button, .render-menu-button { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 9px; border: 1px solid transparent; border-radius: 2px; background: transparent; color: #ddd; font-size: 11px; text-align: left; }
 .view-button { min-width: 62px; height: 28px; border-color: #3d3d3d; border-radius: 3px; background: #292929; }
 .view-button:hover, .view-button[aria-expanded="true"] { border-color: #777; background: #303030; color: #fff; }
-.view-button span, .render-menu-button span { color: #aaa; font-size: 14px; }
+.render-menu-button span { color: #aaa; font-size: 14px; }
 .view-menu { position: absolute; z-index: 5; top: 34px; left: 0; width: 165px; padding: 5px; border: 1px solid #555; border-radius: 4px; background: #252525; box-shadow: 0 5px 18px #0008; }
 .view-menu[hidden], .render-menu[hidden] { display: none; }
 .render-menu-button { width: 100%; }
@@ -82,6 +82,8 @@ button:focus-visible, input:focus-visible { outline: 1px solid #d0d0d0; outline-
 .snap-button kbd { margin-left: 5px; padding: 1px 4px; border: 1px solid #555; border-radius: 2px; color: #aaa; font: 9px Arial, sans-serif; }
 .edit-menu-wrap { position: relative; }
 .edit-button, .eyedropper-button, .point-geo-button, .geo-move-button { padding: 6px 10px; border: 1px solid #3d3d3d; border-radius: 3px; background: #292929; color: #c4c4c4; font-size: 12px; }
+.point-geo-button, .geo-move-button { display: flex; align-items: center; gap: 7px; }
+.edit-tool-icon { width: 18px; height: 18px; flex: 0 0 18px; object-fit: contain; image-rendering: pixelated; }
 .edit-button:hover, .eyedropper-button:hover, .point-geo-button:hover, .geo-move-button:hover { border-color: #777; background: #303030; }
 .edit-button[aria-expanded="true"], .eyedropper-button[aria-pressed="true"], .point-geo-button[aria-pressed="true"], .geo-move-button[aria-pressed="true"] { border-color: #8b8b8b; background: #454545; color: #fff; }
 .geo-move-button:disabled { opacity: .4; }
@@ -116,7 +118,8 @@ button:focus-visible, input:focus-visible { outline: 1px solid #d0d0d0; outline-
 .point-geometry-disclosure { width: 16px; flex: 0 0 16px; padding: 0; border: 1px solid transparent; background: transparent; color: #999; font-size: 13px; }
 .point-geometry-disclosure:hover { border-color: #444; background: #303030; color: #eee; }
 .point-geometry-disclosure[hidden] { display: none; }
-.point-geometry-child { margin-left: 25px; padding: 5px 7px; border: 1px solid #303030; border-radius: 2px; background: #202020; color: #aaa; font-size: 10px; text-align: left; }
+.point-geometry-child { display: flex; align-items: center; gap: 7px; margin-left: 25px; padding: 5px 7px; border: 1px solid #303030; border-radius: 2px; background: #202020; color: #aaa; font-size: 10px; text-align: left; }
+.point-geometry-icon { width: 18px; height: 18px; flex: 0 0 18px; object-fit: contain; image-rendering: pixelated; }
 .point-geometry-child:hover { border-color: #555; background: #303030; color: #eee; }
 .point-geometry-child[hidden] { display: none; }
 .scene-object { flex: 1; min-width: 0; padding: 6px 7px; overflow: hidden; border: 1px solid #303030; border-radius: 2px; background: #242424; color: #ccc; font-size: 11px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
