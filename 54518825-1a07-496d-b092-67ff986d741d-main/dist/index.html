@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#181818" />
     <title>3D Editor</title>
-    <script type="module" crossorigin src="/assets/index-Dp8H3M14.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-CuVx9a69.css">
+    <script type="module" crossorigin src="./assets/index-CGLkkj8U.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-CvRd9wPw.css">
   </head>
   <body>
     <main class="workspace">
@@ -27,6 +27,15 @@
                 <span><output id="render-distance-value">80</output> m</span>
                 <input id="render-distance" type="range" min="20" max="200" step="10" value="80" />
               </label>
+            </div>
+          </div>
+          <div class="lighting-menu-wrap">
+            <button class="lighting-button" type="button" aria-expanded="false" aria-controls="lighting-menu">FXlighting <span aria-hidden="true">›</span></button>
+            <div id="lighting-menu" class="lighting-menu" hidden>
+              <div class="menu-heading">ADD LIGHT</div>
+              <button type="button" data-light="spot">Spot Light</button>
+              <button type="button" data-light="directional">Universal Light (Sun)</button>
+              <button type="button" data-light="point">Point Light</button>
             </div>
           </div>
           <button class="tool-button active" type="button" data-mode="select" aria-pressed="true">Select</button>
@@ -100,15 +109,16 @@
         <path fill="#f3c75f" d="M7 7h2v2H7z"/>
         <path fill="#fff1bd" d="M7 7h1v1H7z"/>
       </svg>
-      <img class="propeller-sprite propeller-idle" src="/cursors/propeller-idle.png" alt="" />
-      <img class="propeller-sprite propeller-spin-a" src="/cursors/propeller-spin-a.png" alt="" />
-      <img class="propeller-sprite propeller-spin-b" src="/cursors/propeller-spin-b.png" alt="" />
-      <img class="cursor-hand cursor-hand-click" src="/cursors/hand-click.png" alt="" />
-      <img class="cursor-hand cursor-hand-blocked" src="/cursors/hand-blocked.png" alt="" />
+      <img class="propeller-sprite propeller-idle" src="./cursors/propeller-idle.png" alt="" />
+      <img class="propeller-sprite propeller-spin-a" src="./cursors/propeller-spin-a.png" alt="" />
+      <img class="propeller-sprite propeller-spin-b" src="./cursors/propeller-spin-b.png" alt="" />
+      <img class="cursor-hand cursor-hand-click" src="./cursors/hand-click.png" alt="" />
+      <img class="cursor-hand cursor-hand-blocked" src="./cursors/hand-blocked.png" alt="" />
       <svg class="eyedropper-cursor" viewBox="0 0 16 16" shape-rendering="crispEdges">
         <path fill="#171717" d="M2 1h4v2h2v2l5 5-2 2-5-5H4V5H2zM8 12l2 2-2 2-2-2z"/>
         <path fill="#f4f4f4" d="M3 2h2v2h2v2l5 5-1 1-5-5H5V5H3zM7 13l1 1-1 1-1-1z"/>
       </svg>
-    </div>
+    </div>
+    <div id="gpu-error" class="gpu-error" role="alert" hidden></div>
   </body>
 </html>
