@@ -1173,7 +1173,7 @@ function updateProperties(mesh: THREE.Mesh) {
             Float32Array.from(position.array),
             basePoints,
             pointData,
-            Math.max(bounds.getSize(new THREE.Vector3()).length() * 0.4, 0.1),
+            Math.max(bounds.getSize(new THREE.Vector3()).length() * 0.18, 0.1),
           );
         }
         previousGeometry.dispose();
@@ -1986,6 +1986,7 @@ function beginPointEditing(mesh: THREE.Mesh) {
   if (isObjectLocked(mesh)) return;
   if (pointEditObject && pointEditObject !== mesh && !finishPointEditing(true)) return;
   manualPointSelectionEnabled = false;
+  geoMoveEnabled = true;
   pointEditObject = mesh;
   selectedPointObject = mesh;
   const hadSavedPoints = pointGeometryPoints.has(mesh);
@@ -2004,7 +2005,7 @@ function beginPointEditing(mesh: THREE.Mesh) {
   pointGeometryEditStates.set(mesh, {
     basePoints: points.map((point) => point.clone()),
     basePositions: Float32Array.from(positions.array),
-    influenceRadius: Math.max(bounds.getSize(new THREE.Vector3()).length() * 0.4, 0.1),
+    influenceRadius: Math.max(bounds.getSize(new THREE.Vector3()).length() * 0.18, 0.1),
     hadSavedPoints,
   });
   updatePointGeometryHierarchy(mesh);
@@ -2056,7 +2057,6 @@ function applyPointDeformationToGeometry(
       weightTotal += weight;
     }
     if (weightTotal > 0) {
-      offset.multiplyScalar(Math.min(1, weightTotal) / weightTotal);
       vertex.add(offset);
     }
     position.setXYZ(index, vertex.x, vertex.y, vertex.z);
@@ -2075,7 +2075,6 @@ function rebuildPointGeometry(mesh: THREE.Mesh) {
   }
   applyPointGeometryDeformation(mesh);
   pointGeometryPoints.set(mesh, points.map((point) => point.clone()));
-  pointGeometryEditStates.delete(mesh);
   updatePointGeometryHierarchy(mesh);
   selectionHighlight.update();
   if (pointStatusElement) pointStatusElement.textContent = 'Point geometry saved.';
@@ -2091,6 +2090,7 @@ function finishPointEditing(save: boolean) {
   }
   if (save) {
     if (!rebuildPointGeometry(mesh)) return false;
+    pointGeometryEditStates.delete(mesh);
   } else {
     const state = pointGeometryEditStates.get(mesh);
     const position = mesh.geometry.getAttribute('position');
@@ -2661,8 +2661,7 @@ renderer.domElement.addEventListener('pointerdown', (event) => {
 });
 
 renderer.domElement.addEventListener('pointerdown', (event) => {
-  if (!pointEditObject || isObjectLocked(pointEditObject) || event.button !== 0 ||
-    (!manualPointSelectionEnabled && !geoMoveEnabled && transformMode !== 'translate')) return;
+  if (!pointEditObject || isObjectLocked(pointEditObject) || event.button !== 0) return;
   if (transformControls.dragging) return;
   pointInteractionLocked = true;
   syncNavigationControls();
