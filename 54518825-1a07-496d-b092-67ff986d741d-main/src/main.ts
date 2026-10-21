@@ -16,6 +16,10 @@ const hierarchyPanelElement = document.querySelector<HTMLElement>('.hierarchy-pa
 const propertiesPanelElement = document.querySelector<HTMLElement>('.properties-panel');
 const insertButtonElement = document.querySelector<HTMLButtonElement>('.insert-button');
 const insertMenuElement = document.querySelector<HTMLDivElement>('#insert-menu');
+const viewButtonElement = document.querySelector<HTMLButtonElement>('.view-button');
+const viewMenuElement = document.querySelector<HTMLDivElement>('#view-menu');
+const renderMenuButtonElement = document.querySelector<HTMLButtonElement>('.render-menu-button');
+const renderMenuElement = document.querySelector<HTMLDivElement>('#render-menu');
 const lightingButtonElement = document.querySelector<HTMLButtonElement>('.lighting-button');
 const lightingMenuElement = document.querySelector<HTMLDivElement>('#lighting-menu');
 const sceneContentsElement = document.querySelector<HTMLDivElement>('#scene-contents');
@@ -40,7 +44,8 @@ const objectContextMenuElement = document.querySelector<HTMLDivElement>('#object
 
 if (!viewportElement || !gpuErrorElement || !toolbarElement || !sidebarElement || !sidebarResizeElement ||
   !panelResizeElement || !hierarchyPanelElement || !propertiesPanelElement ||
-  !insertButtonElement || !insertMenuElement || !lightingButtonElement || !lightingMenuElement ||
+  !insertButtonElement || !insertMenuElement || !viewButtonElement || !viewMenuElement ||
+  !renderMenuButtonElement || !renderMenuElement || !lightingButtonElement || !lightingMenuElement ||
   !sceneContentsElement || !sceneDisclosureElement || !propertiesElement ||
   !distanceInputElement || !distanceOutputElement || !customCursorElement || !snapButtonElement ||
   !editButtonElement || !editMenuElement || !eyedropperButtonElement || !pointGeoButtonElement ||
@@ -60,6 +65,10 @@ const hierarchyPanel = hierarchyPanelElement;
 const propertiesPanel = propertiesPanelElement;
 const insertButton = insertButtonElement;
 const insertMenu = insertMenuElement;
+const viewButton = viewButtonElement;
+const viewMenu = viewMenuElement;
+const renderMenuButton = renderMenuButtonElement;
+const renderMenu = renderMenuElement;
 const lightingButton = lightingButtonElement;
 const lightingMenu = lightingMenuElement;
 const sceneContents = sceneContentsElement;
@@ -67,6 +76,7 @@ const sceneDisclosure = sceneDisclosureElement;
 const properties = propertiesElement;
 const distanceInput = distanceInputElement;
 const distanceOutput = distanceOutputElement;
+const renderDistanceOptions = [4, 10, 20, 30, 40] as const;
 const customCursor = customCursorElement;
 const snapButton = snapButtonElement;
 const editButton = editButtonElement;
@@ -121,7 +131,7 @@ debugClear.addEventListener('click', () => {
 });
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color('#171a1e');
+scene.background = new THREE.Color('#87ceeb');
 
 const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
 camera.position.set(13, 12, 16);
@@ -411,15 +421,23 @@ transformControls.addEventListener('objectChange', () => {
       updatePointGeometryPreview();
     }
   }
+  if (selectedObject) {
+    const light = sceneLights.get(selectedObject);
+    if (light instanceof THREE.DirectionalLight) light.position.copy(selectedObject.position);
+  }
   if (selectedObject && transformReadouts) {
     const { position, rotation, scale } = selectedObject;
     transformReadouts.position.textContent = `Position: ${position.x.toFixed(2)}, ${position.y.toFixed(2)}, ${position.z.toFixed(2)}`;
     transformReadouts.rotation.textContent = `Rotation: ${THREE.MathUtils.radToDeg(rotation.x).toFixed(1)}°, ${THREE.MathUtils.radToDeg(rotation.y).toFixed(1)}°, ${THREE.MathUtils.radToDeg(rotation.z).toFixed(1)}°`;
     transformReadouts.scale.textContent = `Scale: ${scale.x.toFixed(2)}, ${scale.y.toFixed(2)}, ${scale.z.toFixed(2)}`;
+    for (const axis of ['x', 'y', 'z'] as const) {
+      const input = properties.querySelector<HTMLInputElement>(`[aria-label="Position ${axis.toUpperCase()}"]`);
+      if (input) input.value = selectedObject.position[axis].toFixed(2);
+    }
   }
 });
 
-const gridDistance = Number(distanceInput.value);
+const gridDistance = renderDistanceOptions[Number(distanceInput.value)];
 const cameraPositionUniform = TSL.uniform(camera.position.clone());
 const renderDistanceUniform = TSL.uniform(gridDistance);
 const gridCoordinates = TSL.positionWorld.xz;
@@ -454,7 +472,9 @@ grid.frustumCulled = false;
 scene.add(grid);
 
 distanceInput.addEventListener('input', () => {
-  const distance = Number(distanceInput.value);
+  const optionIndex = THREE.MathUtils.clamp(Math.round(Number(distanceInput.value)), 0, renderDistanceOptions.length - 1);
+  distanceInput.value = String(optionIndex);
+  const distance = renderDistanceOptions[optionIndex];
   distanceOutput.value = String(distance);
   renderDistanceUniform.value = distance;
   gridGeometry.dispose();
@@ -692,6 +712,13 @@ const objects: THREE.Mesh[] = [];
 const objectShapes = new WeakMap<THREE.Mesh, string>();
 type EditableLight = THREE.PointLight | THREE.SpotLight | THREE.DirectionalLight;
 const sceneLights = new WeakMap<THREE.Mesh, EditableLight>();
+interface SunSettings {
+  latitude: number;
+  longitude: number;
+  timeOfDay: number;
+  flare: THREE.Mesh;
+}
+const sunSettings = new WeakMap<THREE.Mesh, SunSettings>();
 type MaterialPreset = 'Rubber' | 'Concrete' | 'Glass';
 const objectMaterialPresets = new WeakMap<THREE.Mesh, MaterialPreset>();
 const raycaster = new THREE.Raycaster();
@@ -862,6 +889,8 @@ function updateLightProperties(mesh: THREE.Mesh, light: EditableLight) {
     wheelSelector.style.left = `${50 + Math.cos(angle) * hsl.s * 50}%`;
     wheelSelector.style.top = `${50 - Math.sin(angle) * hsl.s * 50}%`;
     proxyMaterial.color.copy(light.color);
+    const flareMaterial = sunSettings.get(mesh)?.flare.material;
+    if (flareMaterial instanceof THREE.MeshBasicMaterial) flareMaterial.color.copy(light.color);
     paletteButtons.forEach((button, index) => {
       button.classList.toggle('selected', paletteColors[index] === hex);
     });
@@ -936,6 +965,66 @@ function updateLightProperties(mesh: THREE.Mesh, light: EditableLight) {
   rotation.textContent = `Rotation: ${THREE.MathUtils.radToDeg(mesh.rotation.x).toFixed(1)}°, ${THREE.MathUtils.radToDeg(mesh.rotation.y).toFixed(1)}°, ${THREE.MathUtils.radToDeg(mesh.rotation.z).toFixed(1)}°`;
   scale.textContent = `Scale: ${mesh.scale.x.toFixed(2)}, ${mesh.scale.y.toFixed(2)}, ${mesh.scale.z.toFixed(2)}`;
 
+  const sun = sunSettings.get(mesh);
+  const positionControls = document.createElement('section');
+  positionControls.className = 'light-position-controls';
+  const positionHeading = document.createElement('div');
+  positionHeading.className = 'menu-heading';
+  positionHeading.textContent = sun ? 'SUN POSITION' : 'POSITION';
+  positionControls.appendChild(positionHeading);
+  const positionInputs = new Map<'x' | 'y' | 'z', HTMLInputElement>();
+  const updatePositionInputs = () => {
+    for (const axis of ['x', 'y', 'z'] as const) {
+      const input = positionInputs.get(axis);
+      if (input) input.value = mesh.position[axis].toFixed(2);
+    }
+    position.textContent = `Position: ${mesh.position.x.toFixed(2)}, ${mesh.position.y.toFixed(2)}, ${mesh.position.z.toFixed(2)}`;
+    if (light instanceof THREE.DirectionalLight) light.position.copy(mesh.position);
+  };
+  for (const axis of ['x', 'y', 'z'] as const) {
+    const field = makeNumberField(`Position ${axis.toUpperCase()}`, mesh.position[axis], -100000, 100000, 0.1, (value) => {
+      mesh.position[axis] = value;
+      updatePositionInputs();
+    });
+    const input = field.querySelector<HTMLInputElement>('input');
+    if (!input) throw new Error(`Position ${axis.toUpperCase()} field could not be created.`);
+    positionInputs.set(axis, input);
+    positionControls.appendChild(field);
+  }
+
+  if (sun) {
+    const sunNote = document.createElement('div');
+    sunNote.className = 'point-geometry-status';
+    sunNote.textContent = 'The sun uses directional lighting, so its light reaches the whole scene regardless of the visible sun marker distance.';
+    positionControls.appendChild(sunNote);
+    const locationHeading = document.createElement('div');
+    locationHeading.className = 'menu-heading';
+    locationHeading.textContent = 'SUN LOCATION & TIME';
+    positionControls.appendChild(locationHeading);
+    const updateSolarPosition = () => {
+      if (!(light instanceof THREE.DirectionalLight)) {
+        throw new Error(`Sun light "${mesh.name}" is not directional.`);
+      }
+      updateSunPosition(mesh, light, sun);
+      updatePositionInputs();
+    };
+    positionControls.append(
+      makeNumberField('Latitude (°)', sun.latitude, -90, 90, 0.1, (value) => {
+        sun.latitude = value;
+        updateSolarPosition();
+      }),
+      makeNumberField('Longitude (°)', sun.longitude, -180, 180, 0.1, (value) => {
+        sun.longitude = value;
+        updateSolarPosition();
+      }),
+      makeNumberField('Time of day (UTC)', sun.timeOfDay, 0, 24, 0.1, (value) => {
+        sun.timeOfDay = value;
+        updateSolarPosition();
+      }),
+      makeToggleField('Sun flare ring', sun.flare.visible, (enabled) => { sun.flare.visible = enabled; }),
+    );
+  }
+
   form.append(
     nameLabel,
     makeToggleField('Enabled', light.visible, (enabled) => { light.visible = enabled; }),
@@ -943,7 +1032,7 @@ function updateLightProperties(mesh: THREE.Mesh, light: EditableLight) {
       light instanceof THREE.DirectionalLight ? 'Brightness (lux)' : 'Brightness (cd)',
       light.intensity,
       0,
-      light instanceof THREE.DirectionalLight ? 100000 : 10000,
+      9999,
       1,
       (value) => { light.intensity = value; },
       true,
@@ -960,6 +1049,7 @@ function updateLightProperties(mesh: THREE.Mesh, light: EditableLight) {
   }
   form.append(
     makeToggleField('Cast Shadow', light.castShadow, (enabled) => { light.castShadow = enabled; }),
+    positionControls,
     position,
     rotation,
     scale,
@@ -1997,6 +2087,24 @@ function addObject(name: string, position: THREE.Vector3) {
   selectObject(mesh);
 }
 
+function getSunPosition(settings: SunSettings): THREE.Vector3 {
+  const latitude = THREE.MathUtils.degToRad(settings.latitude);
+  const hourAngle = THREE.MathUtils.degToRad((settings.timeOfDay - 12) * 15 + settings.longitude);
+  const direction = new THREE.Vector3(
+    -Math.sin(hourAngle),
+    Math.cos(hourAngle) * Math.cos(latitude),
+    -Math.cos(hourAngle) * Math.sin(latitude),
+  ).normalize();
+  return direction.multiplyScalar(80);
+}
+
+function updateSunPosition(proxy: THREE.Mesh, light: THREE.DirectionalLight, settings: SunSettings) {
+  proxy.position.copy(getSunPosition(settings));
+  proxy.visible = true;
+  light.position.copy(proxy.position);
+  light.target.position.set(0, 0, 0);
+}
+
 function addLight(type: 'spot' | 'directional' | 'point'): THREE.Mesh {
   const lightName = type === 'spot'
     ? 'Spot Light'
@@ -2013,15 +2121,35 @@ function addLight(type: 'spot' | 'directional' | 'point'): THREE.Mesh {
   proxy.position.set(0, 2, 0);
   proxy.renderOrder = 998;
   const light: EditableLight = type === 'spot'
-    ? new THREE.SpotLight('#ffffff', 1000, 20, Math.PI / 6, 0.2)
+    ? new THREE.SpotLight('#ffffff', 750, 20, Math.PI / 6, 0.2)
     : type === 'directional'
-      ? new THREE.DirectionalLight('#ffffff', 10000)
-      : new THREE.PointLight('#ffffff', 1000, 20);
+      ? new THREE.DirectionalLight('#ffffff', 200)
+      : new THREE.PointLight('#ffffff', 750, 20);
   light.name = proxy.name;
   light.castShadow = false;
   light.shadow.mapSize.set(512, 512);
-  proxy.add(light);
-  if (light instanceof THREE.SpotLight || light instanceof THREE.DirectionalLight) {
+  if (light instanceof THREE.DirectionalLight) {
+    proxy.frustumCulled = false;
+    proxy.geometry.dispose();
+    proxy.geometry = new THREE.SphereGeometry(0.55, 20, 14);
+    material.dispose();
+    proxy.material = new THREE.MeshBasicMaterial({ color: '#ffe188', depthTest: false });
+    const flare = new THREE.Mesh(
+      new THREE.TorusGeometry(0.8, 0.035, 8, 48),
+      new THREE.MeshBasicMaterial({ color: '#ffd37a', transparent: true, opacity: 0.75, depthTest: false }),
+    );
+    flare.visible = false;
+    flare.renderOrder = 999;
+    proxy.add(flare);
+    const settings: SunSettings = { latitude: 83, longitude: 0, timeOfDay: 14.6, flare };
+    sunSettings.set(proxy, settings);
+    updateSunPosition(proxy, light, settings);
+    scene.add(light);
+    scene.add(light.target);
+  } else {
+    proxy.add(light);
+  }
+  if (light instanceof THREE.SpotLight) {
     light.target.position.set(0, -1, 0);
     proxy.add(light.target);
   }
@@ -2058,6 +2186,18 @@ function cloneSelectedObject() {
     clone.position.copy(source.position);
     clone.position.x += 0.5;
     clone.rotation.copy(source.rotation);
+    clone.visible = source.visible;
+    if (cloneLight instanceof THREE.DirectionalLight) {
+      const sourceSun = sunSettings.get(source);
+      const cloneSun = sunSettings.get(clone);
+      cloneLight.position.copy(clone.position);
+      if (sourceSun && cloneSun) {
+        cloneSun.latitude = sourceSun.latitude;
+        cloneSun.longitude = sourceSun.longitude;
+        cloneSun.timeOfDay = sourceSun.timeOfDay;
+        cloneSun.flare.visible = sourceSun.flare.visible;
+      }
+    }
     cloneLight.color.copy(sourceLight.color);
     cloneLight.intensity = sourceLight.intensity;
     cloneLight.visible = sourceLight.visible;
@@ -2121,10 +2261,17 @@ function deleteSelectedObject() {
   const topologyTimer = topologyUpdateTimers.get(mesh);
   if (topologyTimer !== undefined) window.clearTimeout(topologyTimer);
   transformControls.detach();
+  const light = sceneLights.get(mesh);
+  if (light instanceof THREE.DirectionalLight) {
+    scene.remove(light, light.target);
+  }
   scene.remove(mesh);
   const objectIndex = objects.indexOf(mesh);
   if (objectIndex >= 0) objects.splice(objectIndex, 1);
   sceneContents.querySelector(`.scene-object-row[data-uuid="${mesh.uuid}"]`)?.remove();
+  sunSettings.get(mesh)?.flare.geometry.dispose();
+  const flare = sunSettings.get(mesh)?.flare;
+  if (flare?.material instanceof THREE.Material) flare.material.dispose();
   mesh.geometry.dispose();
   if (Array.isArray(mesh.material)) mesh.material.forEach((material) => material.dispose());
   else mesh.material.dispose();
@@ -2183,6 +2330,32 @@ insertButton.addEventListener('click', () => {
   insertMenu.hidden = isOpen;
   lightingMenu.hidden = true;
   lightingButton.setAttribute('aria-expanded', 'false');
+});
+
+viewButton.addEventListener('click', () => {
+  const isOpen = viewButton.getAttribute('aria-expanded') === 'true';
+  viewButton.setAttribute('aria-expanded', String(!isOpen));
+  viewMenu.hidden = isOpen;
+  renderMenu.hidden = true;
+  renderMenuButton.setAttribute('aria-expanded', 'false');
+  insertMenu.hidden = true;
+  insertButton.setAttribute('aria-expanded', 'false');
+});
+
+renderMenuButton.addEventListener('click', () => {
+  const isOpen = renderMenuButton.getAttribute('aria-expanded') === 'true';
+  renderMenuButton.setAttribute('aria-expanded', String(!isOpen));
+  renderMenu.hidden = isOpen;
+});
+
+document.addEventListener('pointerdown', (event) => {
+  const target = event.target as Node;
+  if (!viewMenu.contains(target) && !viewButton.contains(target)) {
+    viewMenu.hidden = true;
+    viewButton.setAttribute('aria-expanded', 'false');
+    renderMenu.hidden = true;
+    renderMenuButton.setAttribute('aria-expanded', 'false');
+  }
 });
 
 lightingButton.addEventListener('click', () => {

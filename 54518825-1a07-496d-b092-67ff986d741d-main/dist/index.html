@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#181818" />
     <title>3D Editor</title>
-    <script type="module" crossorigin src="./assets/index-myytMYs4.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-DIsR78WB.css">
+    <script type="module" crossorigin src="./assets/index-B-ubebya.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-DkRWKdV1.css">
   </head>
   <body>
     <main class="workspace">
@@ -31,11 +31,26 @@
                   <button type="button" data-light="point">Point Light</button>
                 </div>
               </div>
-              <label class="distance-control" for="render-distance">
-                <span>Grid render distance</span>
-                <span><output id="render-distance-value">80</output> m</span>
-                <input id="render-distance" type="range" min="20" max="200" step="10" value="80" />
-              </label>
+            </div>
+          </div>
+          <div class="view-menu-wrap">
+            <button class="view-button" type="button" aria-expanded="false" aria-controls="view-menu">View <span aria-hidden="true">›</span></button>
+            <div id="view-menu" class="view-menu" hidden>
+              <button class="render-menu-button" type="button" aria-expanded="false" aria-controls="render-menu">Render <span aria-hidden="true">›</span></button>
+              <div id="render-menu" class="render-menu" hidden>
+                <label class="distance-control" for="render-distance">
+                  <span>Grid distance</span>
+                  <span><output id="render-distance-value">20</output> m</span>
+                  <input id="render-distance" type="range" min="0" max="4" step="1" value="2" list="render-distance-steps" />
+                  <datalist id="render-distance-steps">
+                    <option value="0" label="4"></option>
+                    <option value="1" label="10"></option>
+                    <option value="2" label="20"></option>
+                    <option value="3" label="30"></option>
+                    <option value="4" label="40"></option>
+                  </datalist>
+                </label>
+              </div>
             </div>
           </div>
           <button class="tool-button active" type="button" data-mode="select" aria-pressed="true">Select</button>
