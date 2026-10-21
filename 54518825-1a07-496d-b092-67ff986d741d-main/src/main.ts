@@ -131,7 +131,8 @@ debugClear.addEventListener('click', () => {
 });
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color('#87ceeb');
+scene.background = new THREE.Color('#808080');
+scene.add(new THREE.HemisphereLight('#e2e2e2', '#666666', 1));
 
 const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
 camera.position.set(13, 12, 16);
@@ -2141,7 +2142,7 @@ function addLight(type: 'spot' | 'directional' | 'point'): THREE.Mesh {
     flare.visible = false;
     flare.renderOrder = 999;
     proxy.add(flare);
-    const settings: SunSettings = { latitude: 83, longitude: 0, timeOfDay: 14.6, flare };
+    const settings: SunSettings = { latitude: 35, longitude: 0, timeOfDay: 12, flare };
     sunSettings.set(proxy, settings);
     updateSunPosition(proxy, light, settings);
     scene.add(light);
