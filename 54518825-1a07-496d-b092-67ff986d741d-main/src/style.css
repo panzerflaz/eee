@@ -69,6 +69,8 @@ button:focus-visible, input:focus-visible { outline: 1px solid #d0d0d0; outline-
 .viewport-wrap { flex: 1; min-height: 0; position: relative; }
 .viewport { position: absolute; inset: 0; }
 .viewport canvas { display: block; width: 100%; height: 100%; }
+.gpu-error { position: fixed; z-index: 20; inset: 0; display: grid; place-content: center; padding: 32px; background: #171a1e; color: #eee; font-size: 14px; line-height: 1.6; white-space: pre-line; }
+.gpu-error[hidden] { display: none; }
 
 .sidebar { width: 380px; flex: 0 0 380px; min-width: 0; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--panel); }
 .panel { min-height: 0; display: flex; flex-direction: column; }

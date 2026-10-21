@@ -1,10 +1,13 @@
 import * as THREE from 'three';
+import { MeshBasicNodeMaterial, WebGPURenderer } from 'three/webgpu';
+import * as TSL from 'three/tsl';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
 import './style.css';
 
 const viewportElement = document.querySelector<HTMLDivElement>('#viewport');
+const gpuErrorElement = document.querySelector<HTMLDivElement>('#gpu-error');
 const toolbarElement = document.querySelector<HTMLDivElement>('.toolbar');
 const sidebarElement = document.querySelector<HTMLElement>('.sidebar');
 const sidebarResizeElement = document.querySelector<HTMLDivElement>('.sidebar-resize');
@@ -33,7 +36,7 @@ const debugEntriesElement = document.querySelector<HTMLOListElement>('.debug-ent
 const debugClearElement = document.querySelector<HTMLButtonElement>('.debug-clear');
 const objectContextMenuElement = document.querySelector<HTMLDivElement>('#object-context-menu');
 
-if (!viewportElement || !toolbarElement || !sidebarElement || !sidebarResizeElement ||
+if (!viewportElement || !gpuErrorElement || !toolbarElement || !sidebarElement || !sidebarResizeElement ||
   !panelResizeElement || !hierarchyPanelElement || !propertiesPanelElement ||
   !addButtonElement || !shapeMenuElement ||
   !sceneContentsElement || !sceneDisclosureElement || !propertiesElement ||
@@ -46,6 +49,7 @@ if (!viewportElement || !toolbarElement || !sidebarElement || !sidebarResizeElem
 }
 
 const viewport = viewportElement;
+const gpuError = gpuErrorElement;
 const toolbar = toolbarElement;
 const sidebar = sidebarElement;
 const sidebarResize = sidebarResizeElement;
@@ -118,7 +122,18 @@ scene.background = new THREE.Color('#171a1e');
 const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
 camera.position.set(13, 12, 16);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+const renderer = new WebGPURenderer({ antialias: true, alpha: false });
+try {
+  await renderer.init();
+  if (!('isWebGPUBackend' in renderer.backend) || renderer.backend.isWebGPUBackend !== true) {
+    throw new Error('The available graphics backend is not WebGPU.');
+  }
+} catch (error) {
+  const details = error instanceof Error ? error.message : String(error);
+  gpuError.textContent = `WebGPU is required to run this editor, but could not be initialized. Update your browser or graphics drivers and try again.\n\n${details}`;
+  gpuError.hidden = false;
+  throw error;
+}
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(viewport.clientWidth, viewport.clientHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -410,45 +425,32 @@ fillLight.position.set(-10, 7, -8);
 scene.add(fillLight);
 
 const gridDistance = Number(distanceInput.value);
-const gridMaterial = new THREE.ShaderMaterial({
+const cameraPositionUniform = TSL.uniform(camera.position.clone());
+const renderDistanceUniform = TSL.uniform(gridDistance);
+const gridCoordinates = TSL.positionWorld.xz;
+const minorGridCoordinates = gridCoordinates;
+const majorGridCoordinates = gridCoordinates.mul(0.1);
+const minorGridDistance = TSL.abs(TSL.fract(minorGridCoordinates.sub(0.5)).sub(0.5))
+  .div(TSL.fwidth(minorGridCoordinates));
+const majorGridDistance = TSL.abs(TSL.fract(majorGridCoordinates.sub(0.5)).sub(0.5))
+  .div(TSL.fwidth(majorGridCoordinates));
+const minorLine = TSL.float(1).sub(TSL.min(TSL.min(minorGridDistance.x, minorGridDistance.y), 1));
+const majorLine = TSL.float(1).sub(TSL.min(TSL.min(majorGridDistance.x, majorGridDistance.y), 1));
+const gridFade = TSL.float(1).sub(TSL.smoothstep(
+  renderDistanceUniform.mul(0.7),
+  renderDistanceUniform,
+  TSL.length(gridCoordinates.sub(cameraPositionUniform.xz)),
+));
+const gridMaterial = new MeshBasicNodeMaterial({
   transparent: true,
   depthWrite: false,
-  uniforms: {
-    uCameraPosition: { value: new THREE.Vector3() },
-    uRenderDistance: { value: gridDistance },
-  },
-  vertexShader: `
-    varying vec3 vWorldPosition;
-    void main() {
-      vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-      vWorldPosition = worldPosition.xyz;
-      gl_Position = projectionMatrix * viewMatrix * worldPosition;
-    }
-  `,
-  fragmentShader: `
-    varying vec3 vWorldPosition;
-    uniform vec3 uCameraPosition;
-    uniform float uRenderDistance;
-
-    float gridLine(vec2 coordinate, float spacing) {
-      vec2 grid = abs(fract(coordinate / spacing - 0.5) - 0.5) / fwidth(coordinate / spacing);
-      return 1.0 - min(min(grid.x, grid.y), 1.0);
-    }
-
-    void main() {
-      vec2 position = vWorldPosition.xz;
-      float minorLine = gridLine(position, 1.0);
-      float majorLine = gridLine(position, 10.0);
-      float distanceFromCamera = length(position - uCameraPosition.xz);
-      float fade = 1.0 - smoothstep(uRenderDistance * 0.7, uRenderDistance, distanceFromCamera);
-      vec3 color = mix(vec3(0.20, 0.22, 0.24), vec3(0.39, 0.42, 0.44), majorLine * 0.8);
-      float opacity = max(minorLine * 0.42, majorLine * 0.7) * fade;
-      gl_FragColor = vec4(color, opacity);
-      #include <tonemapping_fragment>
-      #include <colorspace_fragment>
-    }
-  `,
 });
+gridMaterial.colorNode = TSL.mix(
+  TSL.color('#33383d'),
+  TSL.color('#636b70'),
+  majorLine.mul(0.8),
+);
+gridMaterial.opacityNode = TSL.max(minorLine.mul(0.42), majorLine.mul(0.7)).mul(gridFade);
 let gridGeometry = new THREE.PlaneGeometry(gridDistance * 2, gridDistance * 2);
 const grid = new THREE.Mesh(gridGeometry, gridMaterial);
 grid.rotation.x = -Math.PI / 2;
@@ -459,7 +461,7 @@ scene.add(grid);
 distanceInput.addEventListener('input', () => {
   const distance = Number(distanceInput.value);
   distanceOutput.value = String(distance);
-  gridMaterial.uniforms.uRenderDistance.value = distance;
+  renderDistanceUniform.value = distance;
   gridGeometry.dispose();
   gridGeometry = new THREE.PlaneGeometry(distance * 2, distance * 2);
   grid.geometry = gridGeometry;
@@ -2293,7 +2295,7 @@ function render() {
   updateGeometryPointMarkerScale();
   grid.position.x = camera.position.x;
   grid.position.z = camera.position.z;
-  gridMaterial.uniforms.uCameraPosition.value.copy(camera.position);
+  cameraPositionUniform.value.copy(camera.position);
   renderer.render(scene, camera);
   requestAnimationFrame(render);
 }
