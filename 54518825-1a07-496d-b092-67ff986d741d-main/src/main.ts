@@ -16,6 +16,8 @@ const hierarchyPanelElement = document.querySelector<HTMLElement>('.hierarchy-pa
 const propertiesPanelElement = document.querySelector<HTMLElement>('.properties-panel');
 const addButtonElement = document.querySelector<HTMLButtonElement>('.add-button');
 const shapeMenuElement = document.querySelector<HTMLDivElement>('#shape-menu');
+const lightingButtonElement = document.querySelector<HTMLButtonElement>('.lighting-button');
+const lightingMenuElement = document.querySelector<HTMLDivElement>('#lighting-menu');
 const sceneContentsElement = document.querySelector<HTMLDivElement>('#scene-contents');
 const sceneDisclosureElement = document.querySelector<HTMLButtonElement>('.scene-root');
 const propertiesElement = document.querySelector<HTMLDivElement>('.properties-empty');
@@ -38,7 +40,7 @@ const objectContextMenuElement = document.querySelector<HTMLDivElement>('#object
 
 if (!viewportElement || !gpuErrorElement || !toolbarElement || !sidebarElement || !sidebarResizeElement ||
   !panelResizeElement || !hierarchyPanelElement || !propertiesPanelElement ||
-  !addButtonElement || !shapeMenuElement ||
+  !addButtonElement || !shapeMenuElement || !lightingButtonElement || !lightingMenuElement ||
   !sceneContentsElement || !sceneDisclosureElement || !propertiesElement ||
   !distanceInputElement || !distanceOutputElement || !customCursorElement || !snapButtonElement ||
   !editButtonElement || !editMenuElement || !eyedropperButtonElement || !pointGeoButtonElement ||
@@ -58,6 +60,8 @@ const hierarchyPanel = hierarchyPanelElement;
 const propertiesPanel = propertiesPanelElement;
 const addButton = addButtonElement;
 const shapeMenu = shapeMenuElement;
+const lightingButton = lightingButtonElement;
+const lightingMenu = lightingMenuElement;
 const sceneContents = sceneContentsElement;
 const sceneDisclosure = sceneDisclosureElement;
 const properties = propertiesElement;
@@ -139,6 +143,7 @@ renderer.setSize(viewport.clientWidth, viewport.clientHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.15;
+renderer.shadowMap.enabled = true;
 viewport.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -695,6 +700,8 @@ function createTriangleGeometry(
 
 const objects: THREE.Mesh[] = [];
 const objectShapes = new WeakMap<THREE.Mesh, string>();
+type EditableLight = THREE.PointLight | THREE.SpotLight | THREE.DirectionalLight;
+const sceneLights = new WeakMap<THREE.Mesh, EditableLight>();
 type MaterialPreset = 'Rubber' | 'Concrete' | 'Glass';
 const objectMaterialPresets = new WeakMap<THREE.Mesh, MaterialPreset>();
 const raycaster = new THREE.Raycaster();
@@ -738,8 +745,221 @@ function updateCursorAppearance(event: Pick<PointerEvent, 'clientX' | 'clientY' 
   customCursor.classList.toggle('spinning', usePropeller && isOrbitDragging);
 }
 
+function updateLightProperties(mesh: THREE.Mesh, light: EditableLight) {
+  const proxyMaterial = mesh.material;
+  if (!(proxyMaterial instanceof THREE.MeshBasicMaterial)) {
+    throw new Error(`The display material for light "${mesh.name}" cannot be edited.`);
+  }
+  pointStatusElement = null;
+  properties.classList.remove('properties-empty');
+  properties.classList.add('properties-content');
+  properties.replaceChildren();
+
+  const form = document.createElement('div');
+  form.className = 'properties-form';
+  const nameLabel = document.createElement('label');
+  nameLabel.className = 'property-field';
+  nameLabel.textContent = 'Name';
+  const nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.value = mesh.name;
+  nameInput.setAttribute('aria-label', 'Light name');
+  nameInput.addEventListener('input', () => {
+    mesh.name = nameInput.value;
+    light.name = nameInput.value;
+    const row = sceneContents.querySelector<HTMLElement>(`.scene-object-row[data-uuid="${mesh.uuid}"]`);
+    const selectButton = row?.querySelector<HTMLButtonElement>('.scene-object');
+    if (selectButton) selectButton.textContent = mesh.name || 'Light';
+    updateObjectLockControls(mesh);
+  });
+  nameLabel.appendChild(nameInput);
+
+  const makeNumberField = (
+    labelText: string,
+    value: number,
+    min: number,
+    max: number,
+    step: number,
+    apply: (nextValue: number) => void,
+  ) => {
+    const label = document.createElement('label');
+    label.className = 'property-field';
+    label.textContent = labelText;
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.min = String(min);
+    input.max = String(max);
+    input.step = String(step);
+    input.value = String(value);
+    input.setAttribute('aria-label', labelText);
+    input.addEventListener('change', () => {
+      const requested = Number(input.value);
+      if (!Number.isFinite(requested)) {
+        input.value = String(value);
+        return;
+      }
+      const nextValue = THREE.MathUtils.clamp(requested, min, max);
+      apply(nextValue);
+      input.value = String(nextValue);
+    });
+    label.appendChild(input);
+    return label;
+  };
+
+  const makeToggleField = (labelText: string, checked: boolean, apply: (enabled: boolean) => void) => {
+    const label = document.createElement('label');
+    label.className = 'property-field light-toggle-field';
+    label.textContent = labelText;
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = checked;
+    input.setAttribute('aria-label', labelText);
+    input.addEventListener('change', () => apply(input.checked));
+    label.appendChild(input);
+    return label;
+  };
+
+  const colorSection = document.createElement('section');
+  colorSection.className = 'property-section';
+  const colorToggle = document.createElement('button');
+  colorToggle.className = 'property-section-toggle';
+  colorToggle.type = 'button';
+  colorToggle.setAttribute('aria-expanded', 'true');
+  colorToggle.innerHTML = '<span class="section-chevron">⌄</span><span>Light Color</span>';
+  const colorDetails = document.createElement('div');
+  colorDetails.className = 'chromatics-details';
+  colorToggle.addEventListener('click', () => {
+    const expanded = colorToggle.getAttribute('aria-expanded') === 'true';
+    colorToggle.setAttribute('aria-expanded', String(!expanded));
+    colorToggle.querySelector('.section-chevron')!.textContent = expanded ? '›' : '⌄';
+    colorDetails.hidden = expanded;
+  });
+
+  const wheel = document.createElement('canvas');
+  wheel.className = 'color-wheel';
+  wheel.width = 144;
+  wheel.height = 144;
+  wheel.setAttribute('role', 'slider');
+  wheel.setAttribute('aria-label', 'Light color wheel');
+  wheel.setAttribute('tabindex', '0');
+  drawColorWheel(wheel);
+  const wheelSelector = document.createElement('span');
+  wheelSelector.className = 'wheel-selector';
+  const updateColor = () => {
+    const hex = `#${light.color.getHexString()}`;
+    hexInput.value = hex;
+    wheelSelector.style.backgroundColor = hex;
+    const hsl = { h: 0, s: 0, l: 0 };
+    light.color.getHSL(hsl, THREE.SRGBColorSpace);
+    const angle = hsl.h * Math.PI * 2;
+    wheelSelector.style.left = `${50 + Math.cos(angle) * hsl.s * 50}%`;
+    wheelSelector.style.top = `${50 - Math.sin(angle) * hsl.s * 50}%`;
+    proxyMaterial.color.copy(light.color);
+    paletteButtons.forEach((button, index) => {
+      button.classList.toggle('selected', paletteColors[index] === hex);
+    });
+  };
+  const setColorFromWheel = (event: PointerEvent) => {
+    const bounds = wheel.getBoundingClientRect();
+    const x = ((event.clientX - bounds.left) / bounds.width) * 2 - 1;
+    const y = 1 - ((event.clientY - bounds.top) / bounds.height) * 2;
+    const saturation = Math.min(1, Math.hypot(x, y));
+    const hue = (Math.atan2(y, x) / (Math.PI * 2) + 1) % 1;
+    light.color.setHSL(hue, saturation, 0.5, THREE.SRGBColorSpace);
+    updateColor();
+  };
+  wheel.addEventListener('pointerdown', (event) => {
+    wheel.setPointerCapture(event.pointerId);
+    setColorFromWheel(event);
+  });
+  wheel.addEventListener('pointermove', (event) => {
+    if (event.buttons & 1) setColorFromWheel(event);
+  });
+  const wheelRow = document.createElement('div');
+  wheelRow.className = 'color-wheel-row';
+  wheelRow.append(wheel, wheelSelector);
+
+  const palette = document.createElement('div');
+  palette.className = 'color-palette';
+  palette.setAttribute('aria-label', '36 preset light colors');
+  const paletteColors = Array.from({ length: 36 }, (_, index) =>
+    `#${new THREE.Color().setHSL(index / 36, 0.72, 0.52, THREE.SRGBColorSpace).getHexString()}`);
+  const paletteButtons: HTMLButtonElement[] = [];
+  paletteColors.forEach((color) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'color-swatch';
+    button.style.backgroundColor = color;
+    button.setAttribute('aria-label', `Set light color ${color}`);
+    button.addEventListener('click', () => {
+      light.color.set(color);
+      updateColor();
+    });
+    paletteButtons.push(button);
+    palette.appendChild(button);
+  });
+  const hexLabel = document.createElement('label');
+  hexLabel.className = 'property-field hex-field';
+  hexLabel.textContent = 'HEX';
+  const hexInput = document.createElement('input');
+  hexInput.type = 'text';
+  hexInput.className = 'hex-field-input';
+  hexInput.maxLength = 7;
+  hexInput.setAttribute('aria-label', 'Light color hex code');
+  hexInput.addEventListener('change', () => {
+    if (!/^#[0-9a-f]{6}$/i.test(hexInput.value)) {
+      updateColor();
+      return;
+    }
+    light.color.set(hexInput.value);
+    updateColor();
+  });
+  hexLabel.appendChild(hexInput);
+  colorDetails.append(wheelRow, palette, hexLabel);
+  colorSection.append(colorToggle, colorDetails);
+
+  const position = document.createElement('div');
+  const rotation = document.createElement('div');
+  const scale = document.createElement('div');
+  position.className = 'transform-readout';
+  rotation.className = 'transform-readout';
+  scale.className = 'transform-readout';
+  transformReadouts = { position, rotation, scale };
+  position.textContent = `Position: ${mesh.position.x.toFixed(2)}, ${mesh.position.y.toFixed(2)}, ${mesh.position.z.toFixed(2)}`;
+  rotation.textContent = `Rotation: ${THREE.MathUtils.radToDeg(mesh.rotation.x).toFixed(1)}°, ${THREE.MathUtils.radToDeg(mesh.rotation.y).toFixed(1)}°, ${THREE.MathUtils.radToDeg(mesh.rotation.z).toFixed(1)}°`;
+  scale.textContent = `Scale: ${mesh.scale.x.toFixed(2)}, ${mesh.scale.y.toFixed(2)}, ${mesh.scale.z.toFixed(2)}`;
+
+  form.append(
+    nameLabel,
+    makeToggleField('Enabled', light.visible, (enabled) => { light.visible = enabled; }),
+    makeNumberField('Intensity', light.intensity, 0, 100000, 0.1, (value) => { light.intensity = value; }),
+    colorSection,
+  );
+  if (light instanceof THREE.PointLight || light instanceof THREE.SpotLight) {
+    form.append(makeNumberField('Range', light.distance, 0, 1000, 0.1, (value) => { light.distance = value; }));
+  } else {
+    const rangeNote = document.createElement('div');
+    rangeNote.className = 'point-geometry-status';
+    rangeNote.textContent = 'Directional light has no range.';
+    form.appendChild(rangeNote);
+  }
+  form.append(
+    makeToggleField('Cast Shadow', light.castShadow, (enabled) => { light.castShadow = enabled; }),
+    position,
+    rotation,
+    scale,
+  );
+  updateColor();
+  properties.appendChild(form);
+}
+
 function updateProperties(mesh: THREE.Mesh) {
   pointStatusElement = null;
+  const light = sceneLights.get(mesh);
+  if (light) {
+    updateLightProperties(mesh, light);
+    return;
+  }
   if (selectedPointObject === mesh) {
     updatePointGeometryProperties(mesh);
     return;
@@ -1341,6 +1561,7 @@ document.addEventListener('pointerdown', (event) => {
 });
 
 function addHierarchyRow(mesh: THREE.Mesh) {
+  const isLight = sceneLights.has(mesh);
   const row = document.createElement('div');
   row.className = 'scene-object-row';
   row.setAttribute('data-uuid', mesh.uuid);
@@ -1351,12 +1572,12 @@ function addHierarchyRow(mesh: THREE.Mesh) {
   pointDisclosure.className = 'point-geometry-disclosure';
   pointDisclosure.textContent = '›';
   pointDisclosure.setAttribute('aria-label', `Expand point geometry for ${mesh.name}`);
-  pointDisclosure.hidden = !pointGeoEnabled;
+  pointDisclosure.hidden = isLight || !pointGeoEnabled;
   const pointChild = document.createElement('button');
   pointChild.type = 'button';
   pointChild.className = 'point-geometry-child';
   pointChild.textContent = pointGeometryNames.get(mesh) ?? 'pointGeometryTriangleFillin';
-  pointChild.hidden = true;
+  pointChild.hidden = isLight;
   pointDisclosure.addEventListener('click', () => {
     pointChild.hidden = !pointChild.hidden;
     pointDisclosure.textContent = pointChild.hidden ? '›' : '⌄';
@@ -1372,6 +1593,14 @@ function addHierarchyRow(mesh: THREE.Mesh) {
     event.preventDefault();
     showObjectContextMenu(mesh, event.clientX, event.clientY);
   });
+  if (isLight) {
+    const icon = document.createElement('img');
+    icon.className = 'light-hierarchy-icon';
+    icon.src = './light-icon.png';
+    icon.alt = '';
+    icon.setAttribute('aria-hidden', 'true');
+    line.appendChild(icon);
+  }
   const lockButton = document.createElement('button');
   lockButton.type = 'button';
   lockButton.className = 'object-lock-button';
@@ -1387,7 +1616,10 @@ function setPointGeometryEnabled(enabled: boolean) {
   pointGeoEnabled = enabled;
   pointGeoButton.setAttribute('aria-pressed', String(enabled));
   sceneContents.querySelectorAll<HTMLButtonElement>('.point-geometry-disclosure').forEach((button) => {
-    button.hidden = !enabled;
+    const row = button.closest<HTMLElement>('.scene-object-row');
+    const uuid = row?.dataset.uuid;
+    const mesh = objects.find((object) => object.uuid === uuid);
+    button.hidden = !enabled || Boolean(mesh && sceneLights.has(mesh));
   });
   if (!enabled) {
     if (pointEditObject && !finishPointEditing(true)) {
@@ -1736,6 +1968,8 @@ function addObject(name: string, position: THREE.Vector3) {
     material,
   );
   mesh.name = name;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
   objectShapes.set(mesh, name);
   objectMaterialPresets.set(mesh, 'Rubber');
   mesh.position.copy(position);
@@ -1744,6 +1978,42 @@ function addObject(name: string, position: THREE.Vector3) {
   objects.push(mesh);
   addHierarchyRow(mesh);
   selectObject(mesh);
+}
+
+function addLight(type: 'spot' | 'directional' | 'point'): THREE.Mesh {
+  const lightName = type === 'spot'
+    ? 'Spot Light'
+    : type === 'directional'
+      ? 'Universal Light'
+      : 'Point Light';
+  const material = new THREE.MeshBasicMaterial({
+    color: '#fff0a8',
+    wireframe: true,
+    depthTest: false,
+  });
+  const proxy = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), material);
+  proxy.name = uniqueObjectName(lightName);
+  proxy.position.set(0, 2, 0);
+  proxy.renderOrder = 998;
+  const light: EditableLight = type === 'spot'
+    ? new THREE.SpotLight('#ffffff', 5, 10, Math.PI / 6, 0.2)
+    : type === 'directional'
+      ? new THREE.DirectionalLight('#ffffff', 5)
+      : new THREE.PointLight('#ffffff', 5, 10);
+  light.name = proxy.name;
+  light.castShadow = false;
+  light.shadow.mapSize.set(512, 512);
+  proxy.add(light);
+  if (light instanceof THREE.SpotLight || light instanceof THREE.DirectionalLight) {
+    light.target.position.set(0, -1, 0);
+    proxy.add(light.target);
+  }
+  sceneLights.set(proxy, light);
+  scene.add(proxy);
+  objects.push(proxy);
+  addHierarchyRow(proxy);
+  selectObject(proxy);
+  return proxy;
 }
 
 function uniqueObjectName(baseName: string): string {
@@ -1757,6 +2027,44 @@ function uniqueObjectName(baseName: string): string {
 function cloneSelectedObject() {
   if (!selectedObject) return;
   const source = selectedObject;
+  const sourceLight = sceneLights.get(source);
+  if (sourceLight) {
+    const type = sourceLight instanceof THREE.SpotLight
+      ? 'spot'
+      : sourceLight instanceof THREE.DirectionalLight
+        ? 'directional'
+        : 'point';
+    const clone = addLight(type);
+    const cloneLight = sceneLights.get(clone)!;
+    clone.name = uniqueObjectName(`${source.name} Copy`);
+    cloneLight.name = clone.name;
+    clone.position.copy(source.position);
+    clone.position.x += 0.5;
+    clone.rotation.copy(source.rotation);
+    cloneLight.color.copy(sourceLight.color);
+    cloneLight.intensity = sourceLight.intensity;
+    cloneLight.visible = sourceLight.visible;
+    cloneLight.castShadow = sourceLight.castShadow;
+    if ((cloneLight instanceof THREE.PointLight || cloneLight instanceof THREE.SpotLight) &&
+      (sourceLight instanceof THREE.PointLight || sourceLight instanceof THREE.SpotLight)) {
+      cloneLight.distance = sourceLight.distance;
+    }
+    if (cloneLight instanceof THREE.SpotLight && sourceLight instanceof THREE.SpotLight) {
+      cloneLight.angle = sourceLight.angle;
+      cloneLight.penumbra = sourceLight.penumbra;
+    }
+    const cloneMaterial = clone.material;
+    if (!(cloneMaterial instanceof THREE.MeshBasicMaterial)) {
+      throw new Error(`The display material for light "${clone.name}" cannot be cloned.`);
+    }
+    cloneMaterial.color.copy(cloneLight.color);
+    const cloneRow = sceneContents.querySelector<HTMLElement>(`.scene-object-row[data-uuid="${clone.uuid}"]`);
+    const cloneButton = cloneRow?.querySelector<HTMLButtonElement>('.scene-object');
+    if (cloneButton) cloneButton.textContent = clone.name;
+    updateObjectLockControls(clone);
+    selectObject(clone);
+    return;
+  }
   const sourceMaterial = source.material;
   if (!(sourceMaterial instanceof THREE.MeshStandardMaterial)) {
     throw new Error(`Cannot clone the material for "${source.name}".`);
@@ -1856,6 +2164,36 @@ addButton.addEventListener('click', () => {
   const isOpen = addButton.getAttribute('aria-expanded') === 'true';
   addButton.setAttribute('aria-expanded', String(!isOpen));
   shapeMenu.hidden = isOpen;
+  lightingMenu.hidden = true;
+  lightingButton.setAttribute('aria-expanded', 'false');
+});
+
+lightingButton.addEventListener('click', () => {
+  if (pointEditObject) return;
+  const isOpen = lightingButton.getAttribute('aria-expanded') === 'true';
+  lightingButton.setAttribute('aria-expanded', String(!isOpen));
+  lightingMenu.hidden = isOpen;
+  shapeMenu.hidden = true;
+  addButton.setAttribute('aria-expanded', 'false');
+});
+
+lightingMenu.querySelectorAll<HTMLButtonElement>('[data-light]').forEach((button) => {
+  button.addEventListener('click', () => {
+    const type = button.dataset.light;
+    if (type !== 'spot' && type !== 'directional' && type !== 'point') return;
+    if (pointEditObject && !finishPointEditing(true)) return;
+    lightingMenu.hidden = true;
+    lightingButton.setAttribute('aria-expanded', 'false');
+    addLight(type);
+  });
+});
+
+document.addEventListener('pointerdown', (event) => {
+  const target = event.target as Node;
+  if (!lightingMenu.contains(target) && !lightingButton.contains(target)) {
+    lightingMenu.hidden = true;
+    lightingButton.setAttribute('aria-expanded', 'false');
+  }
 });
 
 shapeMenu.querySelectorAll<HTMLButtonElement>('[data-shape]').forEach((button) => {
@@ -1865,6 +2203,8 @@ shapeMenu.querySelectorAll<HTMLButtonElement>('[data-shape]').forEach((button) =
     if (!shape || !shapeDefinitions[shape]) return;
     shapeMenu.hidden = true;
     addButton.setAttribute('aria-expanded', 'false');
+    lightingMenu.hidden = true;
+    lightingButton.setAttribute('aria-expanded', 'false');
     setPlacementMode(shape);
   });
 });

@@ -46,6 +46,14 @@ button:focus-visible, input:focus-visible { outline: 1px solid #d0d0d0; outline-
 .distance-control { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 5px; padding: 10px 9px 6px; border-top: 1px solid #404040; color: #c9c9c9; font-size: 11px; }
 .distance-control output { color: #fff; }
 .distance-control input { grid-column: 1 / -1; width: 100%; accent-color: #aaa; }
+.lighting-menu-wrap { position: relative; margin-right: 6px; }
+.lighting-button { display: flex; align-items: center; gap: 7px; padding: 6px 9px; border: 1px solid #3d3d3d; border-radius: 3px; background: #292929; color: #c4c4c4; font-size: 11px; }
+.lighting-button:hover, .lighting-button[aria-expanded="true"] { border-color: #777; background: #303030; color: #fff; }
+.lighting-button span { color: #aaa; font-size: 15px; line-height: 10px; }
+.lighting-menu { position: absolute; z-index: 6; top: 0; left: calc(100% + 4px); width: 190px; padding: 5px; border: 1px solid #555; border-radius: 4px; background: #252525; box-shadow: 0 5px 18px #0008; }
+.lighting-menu[hidden] { display: none; }
+.lighting-menu > button { width: 100%; padding: 7px 9px; border: 1px solid transparent; border-radius: 2px; background: transparent; color: #ddd; font-size: 11px; text-align: left; }
+.lighting-menu > button:hover { border-color: #454545; background: #393939; }
 .tool-button { min-width: 60px; padding: 6px 10px; border: 1px solid #3d3d3d; border-radius: 3px; background: #292929; color: #c4c4c4; font-size: 12px; text-align: center; }
 .tool-button:hover { border-color: #777; background: #303030; }
 .tool-button.active { border-color: #666; background: #3a3a3a; color: #fff; box-shadow: inset 0 0 0 1px #ffffff0d; }
@@ -89,6 +97,7 @@ button:focus-visible, input:focus-visible { outline: 1px solid #d0d0d0; outline-
 .scene-contents[hidden] { display: none; }
 .scene-object-row { display: flex; flex-direction: column; gap: 3px; min-width: 0; animation: row-appear 140ms ease-out both; }
 .scene-object-line { display: flex; align-items: stretch; gap: 3px; min-width: 0; }
+.light-hierarchy-icon { width: 16px; height: 16px; flex: 0 0 16px; align-self: center; object-fit: contain; image-rendering: pixelated; }
 .point-geometry-disclosure { width: 16px; flex: 0 0 16px; padding: 0; border: 1px solid transparent; background: transparent; color: #999; font-size: 13px; }
 .point-geometry-disclosure:hover { border-color: #444; background: #303030; color: #eee; }
 .point-geometry-disclosure[hidden] { display: none; }
@@ -125,6 +134,8 @@ button:focus-visible, input:focus-visible { outline: 1px solid #d0d0d0; outline-
 .property-field { display: flex; flex-direction: column; gap: 5px; color: #aaa; font-size: 11px; }
 .property-field input { width: 100%; padding: 6px 7px; border: 1px solid #414141; border-radius: 3px; outline: none; background: #191919; color: #eee; font: inherit; }
 .property-field input:focus { border-color: #777; }
+.property-field input[type="checkbox"] { width: 15px; height: 15px; accent-color: #d3b35d; }
+.light-toggle-field { flex-direction: row; align-items: center; justify-content: space-between; }
 .property-section { display: flex; flex-direction: column; gap: 0; border: 1px solid #383838; border-radius: 3px; background: #242424; }
 .property-section-toggle { width: 100%; min-height: 29px; display: flex; align-items: center; gap: 7px; padding: 5px 8px; border: 0; background: transparent; color: #ddd; font-size: 11px; text-align: left; }
 .property-section-toggle:hover { background: #303030; }

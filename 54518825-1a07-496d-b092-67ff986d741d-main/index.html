@@ -27,6 +27,15 @@
               </label>
             </div>
           </div>
+          <div class="lighting-menu-wrap">
+            <button class="lighting-button" type="button" aria-expanded="false" aria-controls="lighting-menu">FXlighting <span aria-hidden="true">›</span></button>
+            <div id="lighting-menu" class="lighting-menu" hidden>
+              <div class="menu-heading">ADD LIGHT</div>
+              <button type="button" data-light="spot">Spot Light</button>
+              <button type="button" data-light="directional">Universal Light (Sun)</button>
+              <button type="button" data-light="point">Point Light</button>
+            </div>
+          </div>
           <button class="tool-button active" type="button" data-mode="select" aria-pressed="true">Select</button>
           <button class="tool-button" type="button" data-mode="translate" aria-pressed="false">Move</button>
           <button class="tool-button" type="button" data-mode="rotate" aria-pressed="false">Rotate</button>
